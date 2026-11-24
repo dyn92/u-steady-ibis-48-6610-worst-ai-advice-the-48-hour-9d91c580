@@ -56,6 +56,12 @@ Why this line, reasoned out rather than copied from a list:
 The program is deterministic: it always writes this one line, byte for
 byte, so the entry is identical on every run. Pure Python standard
 library only; no third-party packages, no network access.
+
+Revision 2 (after a first test run): validation tightened — the line is
+now also rejected if it carries leading or trailing whitespace, and the
+post-write check compares the file's raw bytes against the line's UTF-8
+encoding, so a stray trailing newline or byte fails loudly instead of
+shipping silently.
 """
 
 import os
@@ -88,6 +94,10 @@ def validate(line):
         )
     if "\n" in line or "\r" in line:
         raise ValueError("entry must be exactly one line: %r" % line)
+    if line != line.strip():
+        raise ValueError(
+            "entry must not have leading or trailing whitespace: %r" % line
+        )
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in line):
         raise ValueError("entry must not contain control characters: %r" % line)
     # Must round-trip as UTF-8, exactly as the sealed scorer reads it.
@@ -105,6 +115,15 @@ def main():
         f.write(line)
     # Verify what was actually written: re-read and re-validate, so a
     # bad write fails loudly instead of silently shipping an invalid entry.
+    # The check is byte-exact as well as text-exact: the file must hold
+    # precisely the line's UTF-8 bytes, no trailing newline or stray byte.
+    with open(out_path, "rb") as f:
+        raw = f.read()
+    if raw != line.encode("utf-8"):
+        raise ValueError(
+            "verification failed: file holds %d bytes, line encodes to %d"
+            % (len(raw), len(line.encode("utf-8")))
+        )
     with open(out_path, "r", encoding="utf-8", newline="") as f:
         written = f.read()
     if written != line:
